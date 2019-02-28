@@ -247,5 +247,4 @@ int scheduler()
   printList("readyQueue", readyQueue);
   running = dequeue(&readyQueue);
   printf("next running = %d\n", running->pid);
-
 }
