@@ -22,12 +22,14 @@ int    n;          // number of component strings
 
 int    fd, dev;
 int    nblocks, ninodes, bmap, imap, inode_start;
-char   line[256], cmd[32], pathname[256];
+char   line[256], cmd[32], pathname[256], pathname2[256];
 
 #include "util.c"
 #include "cd_ls_pwd.c"
 #include "mkdir_creat.c"
 #include "rmdir.c"
+#include "link_unlink.c"
+#include "misc1.c"
 
 int init()
 {
@@ -114,7 +116,7 @@ int main(int argc, char *argv[ ])
 
   //printf("hit a key to continue : "); getchar();
   while(1){
-    printf("input command : [ls|cd|pwd|mkdir|creat|rmdir|quit] ");
+    printf("input command : [ls|cd|pwd|mkdir|creat|rmdir|link|unlink|symlink|readlink|stat|chmod|quit] ");
     fgets(line, 128, stdin);
     line[strlen(line)-1] = 0;
     if (line[0]==0)
@@ -122,7 +124,7 @@ int main(int argc, char *argv[ ])
     pathname[0] = 0;
     cmd[0] = 0;
     
-    sscanf(line, "%s %s", cmd, pathname);
+    sscanf(line, "%s %s %s", cmd, pathname, pathname2);
     printf("cmd=%s pathname=%s\n", cmd, pathname);
 
     if (strcmp(cmd, "ls")==0)
@@ -138,6 +140,18 @@ int main(int argc, char *argv[ ])
       creat_file();
     if (strcmp(cmd, "rmdir")==0)
       remove_dir();
+    if (strcmp(cmd, "link")==0)
+      link_file();
+    if (strcmp(cmd, "unlink")==0)
+      unlink_file();
+    if (strcmp(cmd, "symlink")==0)
+      symlink_file();
+    if (strcmp(cmd, "readlink")==0)
+      readlink_file();
+    if (strcmp(cmd, "stat")==0)
+      stat_file();
+    if (strcmp(cmd, "chmod")==0)
+      chmod_file();
     if (strcmp(cmd, "quit")==0)
        quit();
   }

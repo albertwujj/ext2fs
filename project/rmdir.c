@@ -32,24 +32,28 @@ int remove_dir() {
         pino = dp->inode;
       }
       else if(strcmp(temp, ".")) {
-        printf("%s not empty\n");
+        printf("%s not empty\n", pathname);
         iput(mip);
         return;
       }
       cp += dp->rec_len;
       dp = (DIR *)cp;
     }
+  } else {
+    printf("%s not empty\n", pathname);
+    return;
   }
   if(!S_ISDIR(mip->INODE.i_mode)){
-    printf("%s not a dir\n");
+    printf("%s not a dir\n", pathname);
     iput(mip);
     return;
   }
   if(mip->dirty){
-    printf("inode busy\n");
+    printf("%s inode %d busy\n", pathname, mip->ino);
     return;
   }
 
+  printf("starting deallocs\n");
   int i = 0;
   for (i=0; i<12; i++){
     if (mip->INODE.i_block[i]==0)
@@ -64,7 +68,7 @@ int remove_dir() {
 }
 
 int rm_child(MINODE *pmip, char *name) {
-  printf("starting rm child\n");
+
   char sbuf[BLKSIZE] = {0};
   int *b = pmip->INODE.i_block;
   int i = 0;
@@ -79,10 +83,11 @@ int rm_child(MINODE *pmip, char *name) {
       char temp[256];
       strncpy(temp, dp->name, dp->name_len);
       temp[dp->name_len] = 0;
+      printf("rmchild name %s\n", temp);
       printf("occupied dir during rmdir %s\n", temp);
       if(strcmp(temp, name) == 0) {
         if(cp == sbuf) {  // is first entry
-          bdealloc(b[i]);
+          bdealloc(pmip->dev, b[i]);
           for(i; i < 11; i++) {
             b[i] = b[i + 1];
           }
