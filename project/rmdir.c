@@ -9,8 +9,11 @@
 
 int remove_dir() {
   char sbuf[BLKSIZE];
-  int ino = getino(pathname);
-  MINODE *mip = iget(dev, ino);
+
+  MINODE *mip = getmino(pathname);
+  if(!mip) {
+    return;
+  }
 
   // TODO: also check for root?
   if(running->uid != mip->INODE.i_uid) {
@@ -76,7 +79,7 @@ int rm_child(MINODE *pmip, char *name) {
     DIR *dp;
     char *cp;
     DIR *prev_dp;
-    get_block(dev, b[i], sbuf);
+    get_block(pmip->dev, b[i], sbuf);
     dp = (DIR *) sbuf;
     cp = dp;
     while (cp < sbuf + BLKSIZE){
@@ -84,7 +87,7 @@ int rm_child(MINODE *pmip, char *name) {
       strncpy(temp, dp->name, dp->name_len);
       temp[dp->name_len] = 0;
       printf("rmchild name %s\n", temp);
-      printf("occupied dir during rmdir %s\n", temp);
+      printf("occupied dir during rmchild %s\n", temp);
       if(strcmp(temp, name) == 0) {
         if(cp == sbuf) {  // is first entry
           bdealloc(pmip->dev, b[i]);
@@ -119,4 +122,5 @@ int rm_child(MINODE *pmip, char *name) {
   }
   double_break:;
   put_block(pmip->dev, b[i],sbuf);
+  iput(pmip);
 }

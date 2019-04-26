@@ -11,9 +11,7 @@ extern int fd, dev;
 extern int nblocks, ninodes, bmap, imap, inode_start;
 extern char line[256], cmd[32], pathname[256];
 
-#define OWNER  000700
-#define GROUP  000070
-#define OTHER  000007
+
 
 int ls_file(INODE *ip, char *bname) {
 
@@ -48,23 +46,23 @@ int ls_file(INODE *ip, char *bname) {
   printf("\n");
 }
 
-int ls_dir(INODE *ip) {
+int ls_dir(MINODE *mip) {
 
   char sbuf[BLKSIZE], temp[256];
   DIR *dp;
   char *cp;
   int i;
 
-  //assume dir is 1 block
-  get_block(dev, ip->i_block[0], sbuf);
+  get_block(mip->dev, mip->INODE.i_block[0], sbuf);
   dp = (DIR *)sbuf;
   cp = sbuf;
   while(cp < sbuf + BLKSIZE){
      strncpy(temp, dp->name, dp->name_len);
      temp[dp->name_len] = 0;
-     MINODE *fmip = iget(dev, dp->inode);
+     MINODE *fmip = iget(mip->dev, dp->inode);
      INODE *fip = &fmip->INODE;
      ls_file(fip, temp);
+     iput(fmip);
      cp += dp->rec_len;
      dp = (DIR *)cp;
   }
@@ -72,11 +70,14 @@ int ls_dir(INODE *ip) {
 
 change_dir()
 {
-  if(strcmp(pathname, "")==0) {
+  if(strcmp(pathname, "/")==0) {
     running->cwd = root;
   } else {
-    int ino = getino(pathname);
-    MINODE *mip = iget(dev, ino);
+
+    MINODE *mip = getmino(pathname);
+    if(!mip) {
+      return;
+    }
     if (!S_ISDIR(mip->INODE.i_mode)) {
       printf("%s not a dir\n", pathname);
       return;
@@ -91,16 +92,19 @@ int list_file()
 {
   //pass inode to lsdir/lsfile
   INODE *ip = NULL;
-  if(strcmp(pathname, "")==0) {
-    ip = &running->cwd->INODE;
-  } else {
-    int ino = getino(pathname);
-    MINODE *mip = iget(dev, ino);
-    ip = &mip->INODE;
-  }
+  MINODE *mip;
 
+  if(strcmp(pathname, "")==0) {
+    mip = getmino(".");
+  } else {
+     mip = getmino(pathname);
+     if(!mip) {
+       return -1;
+     }
+  }
+  ip = &mip->INODE;
   if S_ISDIR(ip->i_mode) {
-    ls_dir(ip);
+    ls_dir(mip);
   } else {
     ls_file(ip, basename(pathname));
   }
@@ -116,8 +120,9 @@ rpwd(MINODE *mip) {
   int pino = search(mip, ".."); // parent
 
   //search in parent directory for myfile
-  MINODE *pmip = iget(dev, pino);
-  get_block(dev, pmip->INODE.i_block[0], sbuf);
+  MINODE *pmip = iget(mip->dev, pino);
+
+  get_block(mip->dev, pmip->INODE.i_block[0], sbuf);
   DIR *dp = (DIR *)sbuf;
   char *cp = (char *)dp;
   char temp[256];
@@ -135,6 +140,7 @@ rpwd(MINODE *mip) {
     cp += dp->rec_len;
     dp = (DIR *)cp;
   }
+  iput(mip);
 }
 
 

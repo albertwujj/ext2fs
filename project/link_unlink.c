@@ -9,15 +9,18 @@
 int link_file(){
 
   //find old file
-  int ino=getino(pathname);
-  if(!ino) {
-    printf("%s not found\n", pathname);
-    return;
+  MINODE *omip = getmino(pathname);
+  if(!omip) {
+    return -1;
   }
-  MINODE *omip = iget(dev, ino);
+  if(!omip->ino) {
+    printf("%s not found\n", pathname);
+    return -1;
+  }
+
   if (!(S_ISREG(omip->INODE.i_mode) || S_ISLNK(omip->INODE.i_mode))) {
     printf("link: %s is dir, cannot link to dir\n", pathname);
-    return;
+    return -1;
   }
 
   //find new file
@@ -26,24 +29,25 @@ int link_file(){
   char *dir = dirname(strdup(pathname2));
   char *base = basename(strdup(pathname2));
   printf("linking new file %s %s\n", dir, base);
-  int dino = getino(dir);
-  if(!dino) {
+  dmip = getmino(dir);
+  if(!dmip) {
+    iput(omip);
+    return -1;
+  }
+  if(!dmip->ino) {
     printf("%s not found\n", dirname);
-    return;
+    return -1;
   }
 
-
-
-  dmip = iget(dev, dino);
   if (!S_ISDIR(dmip->INODE.i_mode)) {
     printf("%s not a dir\n", dir);
-    return;
+    return -1;
   }
   if (search(dmip, base) != 0) {
     printf("file already exists\n");
-    return;
+    return -1;
   }
-  enter_name(dmip, ino, base);
+  enter_name(dmip, omip->ino, base);
   struct timeval tv;
   gettimeofday(&tv, NULL);
   dmip->INODE.i_atime = tv.tv_sec;
@@ -57,24 +61,28 @@ int link_file(){
 }
 
 int unlink_file() {
-  int ino = getino(pathname);
-  if(!ino) {
+  MINODE *mip = getmino(pathname);
+  if(!mip->ino) {
     printf("%s not found\n", pathname);
-    return;
+    return -1;
   }
-  MINODE *mip = iget(dev, ino);
   if (!(S_ISREG(mip->INODE.i_mode) || S_ISLNK(mip->INODE.i_mode))) {
     printf("unlink: %s is dir\n", pathname);
-    return;
+    return -1;
   }
+
   mip->INODE.i_links_count -= 1;
   if(!mip->INODE.i_links_count) {
-    truncate(mip);
+    if (S_ISLNK(mip->INODE.i_mode))
+      memset(mip->INODE.i_block, 0, sizeof(mip->INODE.i_block));
+    else
+      printf("unlink deleting file\n");
+      truncate(mip);
     idealloc(mip->dev,mip->ino);
   }
 
-  int dino = getino(dirname(strdup(pathname)));
-  MINODE *dmip = iget(dev, dino);
+  MINODE *dmip = getmino(dirname(strdup(pathname)));
+
   rm_child(dmip, basename(strdup(pathname)));
 
   mip->dirty = 1;
@@ -86,15 +94,17 @@ int unlink_file() {
 
 int symlink_file() {
   //find old file
-  int oino=getino(pathname);
-  if(!oino) {
-    printf("%s not found\n", pathname);
-    return;
+  MINODE *omip = getmino(pathname);
+  if(!omip) {
+    return -1;
   }
-  MINODE *omip = iget(dev, oino);
+  if(!omip->ino) {
+    printf("%s not found\n", pathname);
+    return -1;
+  }
   if (!(S_ISREG(omip->INODE.i_mode) || S_ISLNK(omip->INODE.i_mode))) {
     printf("link: %s is dir, cannot link to dir\n", pathname);
-    return;
+    return -1;
   }
 
   //find new file
@@ -103,27 +113,30 @@ int symlink_file() {
   char *dir = dirname(strdup(pathname2));
   char *base = basename(strdup(pathname2));
   printf("linking new file %s %s\n", dir, base);
-  int dino = getino(dir);
-  if(!dino) {
+  dmip = getmino(dir);
+  if(!dmip) {
+    iput(omip);
+    return -1;
+  }
+  if(!dmip->ino) {
     printf("%s not found\n", dirname);
-    return;
+    return -1;
   }
 
-  dmip = iget(dev, dino);
   if (!S_ISDIR(dmip->INODE.i_mode)) {
     printf("%s not a dir\n", dir);
-    return;
+    return -1;
   }
   if (search(dmip, base) != 0) {
     printf("file already exists\n");
-    return;
+    return -1;
   }
   int ino = ialloc(dmip->dev);
-  printf("symlink: new ino: %d\n");
-  MINODE *mip = iget(dev, ino);
+  printf("symlink: new ino: %d\n", ino);
+  MINODE *mip = iget(dmip->dev, ino);
   INODE *ip = &mip->INODE;
 
-  ip->i_mode = 0120000;    // OR 040755: DIR type and permissions
+  ip->i_mode = 0120000;    
   ip->i_uid  = running->uid;  // Owner uid
 
   ip->i_links_count = 1;
@@ -144,8 +157,7 @@ int symlink_file() {
 }
 
 char* readlink_file() {
-  int ino = getino(pathname);
-  MINODE *mip = iget(dev, ino);
+  MINODE *mip = getmino(pathname);
   if (!S_ISLNK(mip->INODE.i_mode)) {
     printf("%s not a link\n", pathname);
     return;

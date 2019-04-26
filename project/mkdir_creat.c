@@ -6,41 +6,16 @@
 //
 
 #include <stdio.h>
-/*
-1. pahtname = "/a/b/c" start mip = root;         dev = root->dev;
-            =  "a/b/c" start mip = running->cwd; dev = running->cwd->dev;
-
-2. Let
-     parent = dirname(pathname);   parent= "/a/b" OR "a/b"
-     child  = basename(pathname);  child = "c"
-
-   WARNING: strtok(), dirname(), basename() destroy pathname
-
-3. Get the In_MEMORY minode of parent:
-
-         pino  = getino(parent);
-         pip   = iget(dev, pino);
-
-   Verify : (1). parent INODE is a DIR (HOW?)   AND
-            (2). child does NOT exists in the parent directory (HOW?);
-
-4. call mymkdir(pip, child);
-
-5. inc parent inodes's link count by 1;
-   touch its atime and mark it DIRTY
-
-6. iput(pip);
-*/
 
 
 int mymkdir(MINODE *dmip, char *name)
 {
 
   char sbuf[BLKSIZE] = {0};
-  int ino = ialloc(dev);
-  int bno = balloc(dev);
+  int ino = ialloc(dmip->dev);
+  int bno = balloc(dmip->dev);
   printf("mkdir: new ino: %d, bno: %d\n", ino, bno);
-  MINODE *mip = iget(dev, ino);
+  MINODE *mip = iget(dmip->dev, ino);
   INODE *ip = &mip->INODE;
 
   ip->i_mode = 0x41ED;    // OR 040755: DIR type and permissions
@@ -59,7 +34,7 @@ int mymkdir(MINODE *dmip, char *name)
   iput(mip);                    // write INODE to disk
 
   // curr
-  get_block(dev, bno, sbuf);
+  get_block(mip->dev, bno, sbuf);
   DIR *dp = sbuf;
   dp->inode = ino;
   dp->name_len = 1;
@@ -75,7 +50,7 @@ int mymkdir(MINODE *dmip, char *name)
   dp = (char *)dp + dp->rec_len;
 
 
-  put_block(dev, bno, sbuf);
+  put_block(mip->dev, bno, sbuf);
 
 
   enter_name(dmip, ino, name);
@@ -90,12 +65,12 @@ int make_dir()
   char *dir = dirname(strdup(pathname));
   char *base = basename(strdup(pathname));
   printf("doing mymkdir %s %s\n", dir, base);
-  int dino = getino(dir);
-  if(!dino) {
+  dmip = getmino(dir);
+  printf("minode goten\n");
+  if(!dmip->ino) {
     printf("%s not found\n", dirname);
     return;
   }
-  dmip = iget(dev, dino);
   dip = &dmip->INODE;
 
   if (!S_ISDIR(dip->i_mode)) {
@@ -122,9 +97,8 @@ int my_creat(MINODE *dmip, char *name)
 {
 
   char sbuf[BLKSIZE] = {0};
-  int ino = ialloc(dev);
-  printf("creat: new ino: %d\n");
-  MINODE *mip = iget(dev, ino);
+  int ino = ialloc(dmip->dev);
+  MINODE *mip = iget(dmip->dev, ino);
   INODE *ip = &mip->INODE;
 
   ip->i_mode = 0x81A4;    // OR 040755: DIR type and permissions
@@ -141,21 +115,24 @@ int my_creat(MINODE *dmip, char *name)
 
 int creat_file()
 {
+  return my_creat_file(pathname);
+
+}
+int my_creat_file(char *pathname) {
   MINODE *dmip;
   INODE *dip;
 
   char *dir = dirname(strdup(pathname));
   char *base = basename(strdup(pathname));
   printf("doing mycreat %s %s\n", dir, base);
-  int dino = getino(dir);
-  dmip = iget(dev, dino);
-  if(!dino) {
+  dmip = getmino(dir);
+  if(!dmip->ino) {
     printf("%s not found\n", dirname);
     return;
   }
   dip = &dmip->INODE;
 
-  if (!S_ISREG(dip->i_mode)) {
+  if (!S_ISDIR(dip->i_mode)) {
     printf("%s not a dir\n", dir);
     return;
   }
@@ -171,5 +148,4 @@ int creat_file()
   dmip->dirty = 1;
 
   iput(dmip);
-
 }

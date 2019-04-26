@@ -7,7 +7,6 @@ extern PROC   proc[NPROC], *running;
 extern char   gpath[256];
 extern char   *name[64];
 extern int    n;
-extern int    fd, dev;
 extern int    nblocks, ninodes, bmap, imap, inode_start;
 extern char   line[256], cmd[32], pathname[256];
 
@@ -60,7 +59,7 @@ MINODE *iget(int dev, int ino)
   for (i=0; i<NMINODE; i++){
     mip = &minode[i];
     if (mip->refCount == 0){
-      //printf("allocating NEW minode[%d] for [%d %d]\n", i, dev, ino);
+       printf("allocating NEW minode[%d] for [%d %d]\n", i, dev, ino);
        mip->refCount = 1;
        mip->dev = dev;
        mip->ino = ino;
@@ -114,8 +113,6 @@ iput(MINODE *mip)
 
 }
 
-  
-
 
 int search(MINODE *mip, char *name)
 {
@@ -128,7 +125,7 @@ int search(MINODE *mip, char *name)
       if (ip->i_block[i] == 0)
          break;
 
-      get_block(dev, ip->i_block[i], sbuf);
+      get_block(mip->dev, ip->i_block[i], sbuf);
 
       dp = (DIR *)sbuf;
       cp = sbuf;
@@ -147,33 +144,51 @@ int search(MINODE *mip, char *name)
   return 0;
 }
 
-int getino(char *pathname)
+MINODE* getmino(char *pathname)
 {
+
   int i, ino, blk, disp;
   INODE *ip;
   MINODE *mip;
 
-  printf("getino: pathname=%s\n", pathname);
+  printf("getmino: pathname=%s\n", pathname);
   if (strcmp(pathname, "/")==0)
-      return 2;
+      return root;
 
   if (pathname[0]=='/')
-    mip = iget(dev, 2);
+    mip = root;
   else
     mip = iget(running->cwd->dev, running->cwd->ino);
+
   tokenize(pathname);
   for (i=0; i<n; i++){
       printf("===========================================\n");
+
+      if (mip->ino == 2 && mip->dev != root->dev && strcmp(name[i], "..")==0) {
+        int j = 0;
+        for(j;j<NMNT;j++) {
+          if(mnttable[j].dev==mip->dev) {
+            mip = mnttable[j].mntpoint;
+            break;
+          }
+        }
+      }
       ino = search(mip, name[i]);
+      
       if (ino==0){
          iput(mip);
          printf("name %s does not exist\n", name[i]);
          return 0;
       }
       iput(mip);
-      mip = iget(dev, ino);
+      mip = iget(mip->dev, ino);
+      if(mip->mounted) {
+        printf("moving into mount at dev %d\n", mip->mptr->dev);
+        ino = 2;
+        mip = iget(mip->mptr->dev,2);
+      }
    }
-   return ino;
+   return mip;
 }
 
 int tst_bit(char *buf, int bit)
@@ -223,14 +238,14 @@ int balloc(dev)
   char buf[BLKSIZE];
 
   get_block(dev, bmap, buf);
-
-  for (i=0; i < ninodes; i++){
+  for (i=0; i < nblocks; i++){
     if (tst_bit(buf, i)==0){
        set_bit(buf,i);
        put_block(dev, bmap, buf);
        return i+1;
     }
   }
+  printf("out of DISK SPACE SORRY\n");
   return 0;
 }
 int idealloc(int dev, int ino)
@@ -257,6 +272,7 @@ int bdealloc(int dev, int ino)
 
 int enter_name(MINODE *dmip, int myino, char *myname)
 {
+  int dev = dmip->dev;
   printf("entering name\n");
   char sbuf[BLKSIZE];
   int* b = dmip->INODE.i_block;
@@ -302,6 +318,7 @@ int enter_name(MINODE *dmip, int myino, char *myname)
 }
 
 int truncate(MINODE *mip) {
+  mip->INODE.i_atime = mip->INODE.i_mtime = mip->INODE.i_ctime = time(0L);
   int i = 0;
   for(i = 0; i < 15; i++){
     int directs = i - 11 > 0 ? i - 11: 0;
@@ -330,3 +347,85 @@ int del_indirects(int directs, int block, int dev) {
   }
 }
 
+int get_permissions(PROC *p, MINODE *mip, int mode) {
+  if (p->uid==0){
+    return 1;
+  }
+  if (p->uid != mip->INODE.i_uid) {
+    return 0;
+  }
+  int perms = mip->INODE.i_mode;
+  int read = (1 << (2 + 3)) & perms;
+  int write = (1 << (1 + 3)) & perms;
+  if (mode == 1 || mode == 3) {
+    return write;
+  }
+  if (mode == 2) {
+    return read & write;
+  }
+  if (mode == 0) {
+    return read;
+  }
+}
+
+int verify_fd(int fd) {
+  if (fd >= NFD) {
+    printf("fd out of range\n");
+    return 0;
+  }
+  if(!running->fd[fd]) {
+    printf("fd not open\n");
+    return 0;
+  }
+  return 1;
+}
+
+int lbktobnohelper(int directs, int bno, int dev, int leftover, int write) {
+  if(directs < 0) {
+    return bno;
+  }
+  char sbuf[BLKSIZE];
+  int *block = sbuf;
+  get_block(dev, bno, sbuf);
+  int width = 1;
+  int i = 0;
+  for(i;i<directs;i++) {
+    width *= 256;
+  }
+
+  if(write && block[leftover / width] == 0) {
+    block[leftover / width] = balloc(dev);
+    put_block(dev, bno, sbuf);
+  }
+  int next_bno = block[leftover / width];
+  int offset = leftover % width;
+  int ret = lbktobnohelper(directs - 1, next_bno, dev, offset, write);
+  return ret;
+}
+
+int lbktobno(MINODE *mip, int lbk, int write) {
+  printf("lbk %d \n", lbk);
+  int dev = mip->dev;
+  int *block = &mip->INODE.i_block;
+
+  int ind = lbk;
+  if(lbk < 12) {
+    if (!block[ind] && write) {
+      block[ind]=balloc(dev);
+    }
+    return block[ind];
+  }
+  if ((lbk - 12) < 256) {
+    if (!block[12] && write) {
+      block[12]=balloc(dev);
+    }
+    return lbktobnohelper(0, block[12], dev, (lbk - 12) % 256, write);
+  }
+  else {
+    ind = 13;
+    if (!block[13] && write) {
+      block[13]=balloc(dev);
+    }
+    return lbktobnohelper(1, block[13], dev, lbk - 12 - 256, write);
+  }
+}

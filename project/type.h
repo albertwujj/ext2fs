@@ -20,6 +20,7 @@ DIR   *dp;
 #define NMINODE    64
 #define NFD         8
 #define NPROC       2
+#define NMNT       10
 
 typedef struct minode{
   INODE INODE;
@@ -28,7 +29,10 @@ typedef struct minode{
   int dirty;
   // for level-3
   int mounted;
-  struct mntable *mptr;
+  struct mnt *mptr;
+  int mountee;
+  struct minode *mpoint;
+
 }MINODE;
 
 typedef struct oft{
@@ -46,3 +50,10 @@ typedef struct proc{
   MINODE      *cwd;
   OFT         *fd[NFD];
 }PROC;
+
+typedef struct mnt {
+  int dev;
+  MINODE *mntpoint;
+  char name[256];
+} MNT;
+

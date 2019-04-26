@@ -10,9 +10,12 @@
 
 
 int stat_file() {
-  struct stat st;
-  int ino = getino(pathname);
-  MINODE *mip = iget(dev, ino);
+  struct stat stv;
+  struct stat *st = &stv;
+  MINODE *mip = getmino(pathname);
+  if(!mip){
+    return -1;
+  }
   st->st_dev = mip->dev;
   st->st_ino = mip->ino;
   st->st_nlink = mip->INODE.i_links_count;
@@ -24,12 +27,25 @@ int stat_file() {
 }
 
 int chmod_file() {
-  int ino = getino(pathname2);
-  MINODE *mip = iget(dev, ino);
+  MINODE *mip = getmino(pathname2);
+  if(!mip){
+    return -1;
+  }
   int mode = 0;
-  sscanf(pathname, "%d", &mode);
+  sscanf(pathname, "%o", &mode);
   printf("%d\n", mode);
   mip->INODE.i_mode |= mode;
+  mip->dirty = 1;
+  iput(mip);
+}
+
+int utime_file() {
+  MINODE *mip = getmino(pathname);
+  if(!mip){
+    return -1;
+  }
+  INODE *ip = &mip->INODE;
+  ip->i_atime = ip->i_ctime = ip->i_mtime = time(0L);
   mip->dirty = 1;
   iput(mip);
 }
